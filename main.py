@@ -464,9 +464,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[KeyboardButton("❌ Cancel")]]
         await update.message.reply_text(
             "⏰ Send the schedule time (e.g., '2025-06-03 14:30' or 'in 1 hour'):",
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        )
-
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
     elif state == "scheduling_time":
         try:
             if text.lower().startswith("in "):

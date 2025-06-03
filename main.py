@@ -23,19 +23,23 @@ from dotenv import load_dotenv
 from collections import defaultdict
 import asyncio
 import time
+import threading  # डमी HTTP सर्वर के लिए
+from http.server import HTTPServer, BaseHTTPRequestHandler  # रेंडर के लिए डमी सर्वर
 
+# .env फाइल से environment variables लोड करो
 load_dotenv()
 
+# Environment variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 MAX_CHANNELS = 5
 RATE_LIMIT_SECONDS = 60
 RATE_LIMIT_MAX = 10
 
-# Logging setup
+# Logging सेटअप
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    format="%(asctime)s - %(levelname)s - %(user_id)s - %(message)s",
     handlers=[
         logging.FileHandler("bot.log"),
         logging.StreamHandler(),
@@ -43,7 +47,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# SQLite Database Setup
+# SQLite डेटाबेस सेटअप
 def init_db():
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
@@ -67,7 +71,7 @@ def init_db():
 
 init_db()
 
-# Rate Limiting
+# रेट लिमिटिंग
 user_command_timestamps = defaultdict(list)
 
 def check_rate_limit(user_id):
@@ -79,7 +83,7 @@ def check_rate_limit(user_id):
     timestamps.append(now)
     return True
 
-# Database Functions
+# डेटाबेस फंक्शन्स
 def load_admins():
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
@@ -635,21 +639,46 @@ async def check_scheduled_posts(context: ContextTypes.DEFAULT_TYPE):
                     delete_scheduled_post(post_id)
                 except Exception as e:
                     logger.error(f"Failed to post scheduled message to {channel_id}: {e}")
-        await asyncio.sleep(60)  # Check every minute
+        await asyncio.sleep(60)  # हर मिनट चेक करो
+
+# डमी HTTP सर्वर (रेंडर के लिए जरूरी)
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+def run_dummy_server():
+    # रेंडर PORT environment variable यूज करता है, डिफॉल्ट 8080 सेट करो
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    print(f"Dummy HTTP server started on port {port}...")
+    server.serve_forever()
 
 # ================= Main =================
 def main():
+    # BOT_TOKEN चेक करो, अगर खाली है तो एरर दो
+    if not BOT_TOKEN:
+        raise ValueError("❌ BOT_TOKEN is not set in environment variables.")
+    
     print(f"✅ Bot is starting... OWNER_ID: {OWNER_ID}")
     admins = load_admins()
     print(f"Current admins: {admins}")
     app = Application.builder().token(BOT_TOKEN).build()
 
+    # हैंडलर्स जोड़ो
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.FORWARDED, handle_forwards))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Document.ALL, handle_message))
 
+    # शेड्यूल पोस्ट्स के लिए JobQueue सेटअप
     app.job_queue.run_repeating(check_scheduled_posts, interval=60, first=0)
+
+    # डमी HTTP सर्वर को अलग थ्रेड में रन करो (रेंडर के लिए)
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
 
     print("🤖 Bot is running...")
     app.run_polling()
